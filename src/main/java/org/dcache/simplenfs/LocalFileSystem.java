@@ -1,15 +1,10 @@
 package org.dcache.simplenfs;
 
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.RemovalListener;
-import com.google.common.cache.RemovalNotification;
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
+import com.google.common.primitives.Longs;
 import java.io.File;
 import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,19 +13,18 @@ import java.nio.file.attribute.PosixFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
 import org.dcache.chimera.UnixPermission;
-import org.dcache.chimera.nfs.ChimeraNFSException;
-import org.dcache.chimera.nfs.nfsstat;
-import org.dcache.chimera.nfs.v4.xdr.nfsace4;
-import org.dcache.chimera.nfs.vfs.DirectoryEntry;
-import org.dcache.chimera.nfs.vfs.FsStat;
-import org.dcache.chimera.nfs.vfs.Inode;
-import org.dcache.chimera.nfs.vfs.Inode.Type;
-import org.dcache.chimera.nfs.vfs.VirtualFileSystem;
-import org.dcache.chimera.posix.Stat;
-import org.dcache.utils.Bytes;
+import org.dcache.nfs.ChimeraNFSException;
+import org.dcache.nfs.nfsstat;
+import org.dcache.nfs.v4.xdr.nfsace4;
+import org.dcache.nfs.vfs.AclCheckable;
+import org.dcache.nfs.vfs.DirectoryEntry;
+import org.dcache.nfs.vfs.FsStat;
+import org.dcache.nfs.vfs.Inode;
+import org.dcache.nfs.vfs.Stat;
+import org.dcache.nfs.vfs.Stat.Type;
+import org.dcache.nfs.vfs.VirtualFileSystem;
 
 /**
  *
@@ -38,24 +32,44 @@ import org.dcache.utils.Bytes;
 public class LocalFileSystem implements VirtualFileSystem {
 
     private final Path _root;
-    private ConcurrentMap<Integer, LocalInode> _id_cache = new ConcurrentHashMap<>();
-    private final Cache<LocalInode, FileChannel> _openFiles;
+    private final BiMap<Path, Long> _id_cache = HashBiMap.create();
+    private final AtomicLong fileId = new AtomicLong();
+
+    private long getOrCreateId(Path path) {
+        Long id = _id_cache.get(path);
+        if (id == null) {
+            id = fileId.getAndIncrement();
+            _id_cache.put(path, id);
+        }
+        return id;
+    }
+
+    private Inode toFh(long id) {
+        return Inode.forFile(Longs.toByteArray(id));
+    }
+
+    private Long toId(Inode inode) {
+        return Longs.fromByteArray(inode.getFileId());
+    }
+
+    private Path resolve(Inode inode) {
+        return _id_cache.inverse().get(toId(inode));
+    }
 
     public LocalFileSystem(File root) {
         _root = root.toPath();
-        _openFiles = CacheBuilder
-                .newBuilder()
-                .removalListener( new LocalFileCloser())
-                .build( new LocalFileOpener());
+        _id_cache.put(_root, fileId.getAndIncrement());
     }
 
     @Override
     public Inode create(Inode parent, Type type, String path, int uid, int gid, int mode) throws IOException {
-        LocalInode localInode = (LocalInode) parent;
-        Path parentPath = localInode.getPath();
+        long parentId = Longs.fromByteArray(parent.getFileId());
+        Path parentPath = _id_cache.inverse().get(parentId);
         Path newPath = parentPath.resolve(path);
         Files.createFile(newPath);
-        return new LocalInode(newPath);
+        long newId = fileId.getAndIncrement();
+        _id_cache.put(newPath, newId);
+        return toFh(newId);
     }
 
     @Override
@@ -66,31 +80,28 @@ public class LocalFileSystem implements VirtualFileSystem {
         long avail = fileStore.getUsableSpace();
         long totalFiles = 0;
         long usedFiles = 0;
-        
+
         return new FsStat(totalSpace, totalFiles, totalSpace - avail, usedFiles);
     }
 
     @Override
     public Inode getRootInode() throws IOException {
-        return new LocalInode(_root);
+        Long id = _id_cache.get(_root);
+        return toFh(id);
     }
 
     @Override
-    public Inode inodeOf(byte[] fh) throws IOException {
-        int id = Bytes.getInt(fh, 0);
-        return _id_cache.get(id);
-    }
+    public Inode lookup(Inode parent, String path) throws IOException {
 
-    @Override
-    public Inode inodeOf(Inode parent, String path) throws IOException {
-        LocalInode localInode = (LocalInode) parent;
-        Path parentPath = localInode.getPath();
+        Path parentPath = resolve(parent);
 
         Path element = parentPath.resolve(path);
         if (!Files.exists(element)) {
             throw new ChimeraNFSException(nfsstat.NFSERR_NOENT, element.toString());
         }
-        return new LocalInode(element);
+
+        long id = getOrCreateId(element);
+        return toFh(id);
     }
 
     @Override
@@ -100,12 +111,11 @@ public class LocalFileSystem implements VirtualFileSystem {
 
     @Override
     public List<DirectoryEntry> list(Inode inode) throws IOException {
-        LocalInode localInode = (LocalInode) inode;
-        Path path = localInode.getPath();
+        Path path = resolve(inode);
         DirectoryStream<Path> directoryStream = Files.newDirectoryStream(path);
         List<DirectoryEntry> list = new ArrayList<>();
         for (Path p : directoryStream) {
-            list.add(new DirectoryEntry(p.getFileName().toString(), new LocalInode(p)));
+            list.add(new DirectoryEntry(p.getFileName().toString(), lookup(inode, p.toString()), statPath(p)));
         }
         return list;
     }
@@ -116,223 +126,134 @@ public class LocalFileSystem implements VirtualFileSystem {
     }
 
     @Override
-    public void move(Inode src, String oldName, Inode dest, String newName) throws IOException {
+    public boolean move(Inode src, String oldName, Inode dest, String newName) throws IOException {
         throw new UnsupportedOperationException("Not supported yet.");
     }
 
     @Override
     public Inode parentOf(Inode inode) throws IOException {
-        throw new UnsupportedOperationException("Not supported yet.");
+        Path path = resolve(inode);
+        if (path.equals(_root)) {
+            throw new ChimeraNFSException(nfsstat.NFSERR_NOENT, "no parent");
+        }
+        Path parent = path.getParent();
+        long id = getOrCreateId(parent);
+        return toFh(id);
     }
 
     @Override
     public int read(Inode inode, byte[] data, long offset, int count) throws IOException {
-        LocalInode localInode = (LocalInode) inode;
-
-        FileChannel fc = _openFiles.getUnchecked(localInode);
-        ByteBuffer b = ByteBuffer.wrap(data);
-        b.limit(count);
-        return fc.read(b, offset);
+        throw new UnsupportedOperationException("Not supported yet.");
     }
 
     @Override
     public String readlink(Inode inode) throws IOException {
-        LocalInode localInode = (LocalInode) inode;
-        Path path = localInode.getPath();
+        Path path = resolve(inode);
         return Files.readSymbolicLink(path).toString();
     }
 
     @Override
-    public boolean remove(Inode parent, String path) throws IOException {
-        LocalInode parentInode = (LocalInode) parent;
-        Path parentPath = parentInode.getPath();
+    public void remove(Inode parent, String path) throws IOException {
+        Path parentPath = resolve(parent);
         Files.delete(parentPath.resolve(path));
-        return true;
     }
 
     @Override
     public Inode symlink(Inode parent, String path, String link, int uid, int gid, int mode) throws IOException {
-        LocalInode parentInode = (LocalInode) parent;
-        Path parentPath = parentInode.getPath();
-
-        Path pointingPath = parentPath.getFileSystem().getPath(link);
-        Path linkPath = Files.createSymbolicLink(parentPath, pointingPath);
-        return new LocalInode(linkPath);
+        throw new UnsupportedOperationException("Not supported yet.");
     }
 
     @Override
     public int write(Inode inode, byte[] data, long offset, int count) throws IOException {
-        LocalInode localInode = (LocalInode) inode;
-
-        FileChannel fc = _openFiles.getUnchecked(localInode);
-        ByteBuffer b = ByteBuffer.wrap(data);
-        b.limit(count);
-        return fc.write(b, offset);
+        throw new UnsupportedOperationException("Not supported yet.");
     }
 
-    private class LocalInode implements Inode {
+    private Stat statPath(Path p) throws IOException {
+        PosixFileAttributes attrs = Files.getFileAttributeView(p, PosixFileAttributeView.class).readAttributes();
 
-        private final Path _path;
-        private final PosixFileAttributes _attrs;
+        Stat stat = new Stat();
 
-        public LocalInode(Path path) throws IOException {
-            _path = path;
-            _attrs = Files.getFileAttributeView(_path, PosixFileAttributeView.class).readAttributes();
-        }
+        stat.setATime(attrs.lastAccessTime().toMillis());
+        stat.setCTime(attrs.lastModifiedTime().toMillis());
+        stat.setMTime(attrs.lastModifiedTime().toMillis());
 
-        @Override
-        public byte[] toFileHandle() throws IOException {
-            byte[] fh = new byte[4];
-            int id = _path.hashCode();
-            Bytes.putInt(fh, 0, _path.hashCode());
-            _id_cache.put(id, this);
-            return fh;
-        }
+        // FIXME
+        stat.setGid(0);
+        stat.setUid(0);
 
-        @Override
-        public boolean exists() {
-            return Files.exists(_path);
-        }
+        stat.setDev(17);
+        stat.setIno(attrs.fileKey().hashCode());
+        stat.setMode(toUnixMode(attrs));
+        stat.setNlink(1);
+        stat.setRdev(17);
+        stat.setSize(attrs.size());
+        stat.setFileid(attrs.fileKey().hashCode());
+        stat.setGeneration(attrs.lastModifiedTime().toMillis());
 
-        @Override
-        public Stat stat() throws IOException {
-            Stat stat = new Stat();
-            stat.setATime(_attrs.lastAccessTime().toMillis());
-            stat.setMTime(_attrs.lastModifiedTime().toMillis());
-            stat.setCTime(_attrs.lastModifiedTime().toMillis());
-            stat.setSize(_attrs.size());
-            stat.setMode(toUnixMode(_attrs));
-            return stat;
-        }
-
-        @Override
-        public Stat statCache() throws IOException {
-            return stat();
-        }
-
-        @Override
-        public long id() {
-            return hashCode() << 31 | _attrs.creationTime().toMillis();
-        }
-
-        @Override
-        public void setSize(long size) throws IOException {
-            
-        }
-
-        @Override
-        public void setUID(int id) throws IOException {
-            
-        }
-
-        @Override
-        public void setGID(int id) throws IOException {
-            
-        }
-
-        @Override
-        public void setATime(long time) throws IOException {
-            
-        }
-
-        @Override
-        public void setMTime(long time) throws IOException {
-            
-        }
-
-        @Override
-        public void setCTime(long time) throws IOException {
-            
-        }
-
-        @Override
-        public void setMode(int size) throws IOException {
-            
-        }
-
-        @Override
-        public nfsace4[] getAcl() throws IOException {
-            return new nfsace4[0];
-        }
-
-        @Override
-        public void setAcl(nfsace4[] acl) throws IOException {
-            
-        }
-
-        @Override
-        public Type type() {
-            if (_attrs.isRegularFile()) {
-                return Type.REGULAR;
-            } else if (_attrs.isDirectory()) {
-                return Type.DIRECTORY;
-            } else if (_attrs.isSymbolicLink()) {
-                return Type.SYMLINK;
-            } else {
-                return Type.SOCK;
-            }
-        }
-
-        Path getPath() {
-            return _path;
-        }
-
-        private int toUnixMode(PosixFileAttributes attrs) {
-            int mode = 0;
-            for (PosixFilePermission perm : attrs.permissions()) {
-                switch (perm) {
-                    case OWNER_READ:
-                        mode |= UnixPermission.S_IRUSR;
-                        break;
-                    case OWNER_WRITE:
-                        mode |= UnixPermission.S_IWUSR;
-                        break;
-                    case OWNER_EXECUTE:
-                        mode |= UnixPermission.S_IXUSR;
-                        break;
-                    case GROUP_READ:
-                        mode |= UnixPermission.S_IRGRP;
-                        break;
-                    case GROUP_WRITE:
-                        mode |= UnixPermission.S_IWGRP;
-                        break;
-                    case GROUP_EXECUTE:
-                        mode |= UnixPermission.S_IXGRP;
-                        break;
-                    case OTHERS_READ:
-                        mode |= UnixPermission.S_IROTH;
-                        break;
-                    case OTHERS_WRITE:
-                        mode |= UnixPermission.S_IWOTH;
-                        break;
-                    case OTHERS_EXECUTE:
-                        mode |= UnixPermission.S_IXOTH;
-                        break;
-                }
-            }
-            return (_attrs.isDirectory() ? 0040000 : 0100000) | mode;
-        }
+        return stat;
     }
 
-    private class LocalFileOpener extends CacheLoader<LocalInode, FileChannel> {
-
-        @Override
-        public FileChannel load(LocalInode key) throws Exception {
-            Path p = key.getPath();
-            RandomAccessFile raf = new RandomAccessFile(p.toFile(), "rw");
-            return raf.getChannel();
+    private int toUnixMode(PosixFileAttributes attributes) {
+        int mode = 0;
+        if (attributes.isDirectory()) {
+            mode |= Stat.S_IFDIR;
+        } else if (attributes.isRegularFile()) {
+            mode |= Stat.S_IFREG;
+        } else if (attributes.isSymbolicLink()) {
+            mode |= Stat.S_IFLNK;
+        } else {
+            mode |= Stat.S_IFSOCK;
         }
-    }
 
-    private class LocalFileCloser implements RemovalListener<LocalInode, FileChannel> {
-
-        @Override
-        public void onRemoval(RemovalNotification<LocalInode, FileChannel> notification) {
-            try {
-                notification.getValue().close();
-            } catch (IOException e) {
-                // NOP
+        for(PosixFilePermission perm: attributes.permissions()) {
+            switch(perm) {
+                case GROUP_EXECUTE:  mode |= UnixPermission.S_IXGRP;  break;
+                case GROUP_READ:     mode |= UnixPermission.S_IRGRP;  break;
+                case GROUP_WRITE:    mode |= UnixPermission.S_IWGRP;  break;
+                case OTHERS_EXECUTE: mode |= UnixPermission.S_IXOTH;  break;
+                case OTHERS_READ:    mode |= UnixPermission.S_IROTH;  break;
+                case OTHERS_WRITE:   mode |= UnixPermission.S_IWOTH;  break;
+                case OWNER_EXECUTE:  mode |= UnixPermission.S_IXUSR;  break;
+                case OWNER_READ:     mode |= UnixPermission.S_IRUSR;  break;
+                case OWNER_WRITE:    mode |= UnixPermission.S_IWUSR;  break;
             }
         }
+        return mode;
+    }
+
+    @Override
+    public int access(Inode inode, int mode) throws IOException {
+        return mode;
+    }
+
+    @Override
+    public Stat getattr(Inode inode) throws IOException {
+        Path path = resolve(inode);
+        return statPath(path);
+    }
+
+    @Override
+    public void setattr(Inode inode, Stat stat) throws IOException {
+        // NOP
+    }
+
+    @Override
+    public nfsace4[] getAcl(Inode inode) throws IOException {
+        return new nfsace4[0];
+    }
+
+    @Override
+    public void setAcl(Inode inode, nfsace4[] acl) throws IOException {
+        // NOP
+    }
+
+    @Override
+    public boolean hasIOLayout(Inode inode) throws IOException {
+        return false;
+    }
+
+    @Override
+    public AclCheckable getAclCheckable() {
+        return AclCheckable.UNDEFINED_ALL;
     }
 }

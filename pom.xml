@@ -16,8 +16,8 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>2.3.2</version>
                 <configuration>
-                    <source>1.6</source>
-                    <target>1.6</target>
+                    <source>1.7</source>
+                    <target>1.7</target>
                 </configuration>
             </plugin>
         </plugins>
@@ -34,24 +34,24 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.dcache.chimera</groupId>
-            <artifactId>jpNFS</artifactId>
-            <version>0.0.5-SNAPSHOT</version>
+            <groupId>org.dcache</groupId>
+            <artifactId>nfs4j-core</artifactId>
+            <version>0.8.0</version>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
-            <version>1.6.4</version>
+            <version>1.7.7</version>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>log4j-over-slf4j</artifactId>
-            <version>1.6.4</version>
+            <version>1.7.7</version>
         </dependency>
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
-            <version>1.0.0</version>
+            <version>1.1.2</version>
         </dependency>
     </dependencies>
 </project>
