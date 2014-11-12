@@ -3,20 +3,9 @@ package org.dcache.simplenfs;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.primitives.Longs;
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.DirectoryStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.attribute.PosixFileAttributeView;
-import java.nio.file.attribute.PosixFileAttributes;
-import java.nio.file.attribute.PosixFilePermission;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 import org.dcache.chimera.UnixPermission;
-import org.dcache.nfs.ChimeraNFSException;
-import org.dcache.nfs.nfsstat;
+import org.dcache.nfs.status.ExistException;
+import org.dcache.nfs.status.NoEntException;
 import org.dcache.nfs.v4.xdr.nfsace4;
 import org.dcache.nfs.vfs.AclCheckable;
 import org.dcache.nfs.vfs.DirectoryEntry;
@@ -25,6 +14,22 @@ import org.dcache.nfs.vfs.Inode;
 import org.dcache.nfs.vfs.Stat;
 import org.dcache.nfs.vfs.Stat.Type;
 import org.dcache.nfs.vfs.VirtualFileSystem;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFileAttributes;
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  *
@@ -97,7 +102,7 @@ public class LocalFileSystem implements VirtualFileSystem {
 
         Path element = parentPath.resolve(path);
         if (!Files.exists(element)) {
-            throw new ChimeraNFSException(nfsstat.NFSERR_NOENT, element.toString());
+            throw new NoEntException(element.toString());
         }
 
         long id = getOrCreateId(element);
@@ -122,19 +127,47 @@ public class LocalFileSystem implements VirtualFileSystem {
 
     @Override
     public Inode mkdir(Inode parent, String path, int uid, int gid, int mode) throws IOException {
-        throw new UnsupportedOperationException("Not supported yet.");
+        long parentId = Longs.fromByteArray(parent.getFileId());
+        Path parentPath = _id_cache.inverse().get(parentId);
+        Path newPath = parentPath.resolve(path);
+        Files.createDirectory(newPath);
+        long newId = fileId.getAndIncrement();
+        _id_cache.put(newPath, newId);
+        return toFh(newId);
     }
 
     @Override
     public boolean move(Inode src, String oldName, Inode dest, String newName) throws IOException {
-        throw new UnsupportedOperationException("Not supported yet.");
+        long srcId = Longs.fromByteArray(src.getFileId());
+        Path srcPath = _id_cache.inverse().get(srcId);
+        if (!Files.exists(srcPath)) {
+            throw new NoEntException();
+        }
+        long destId = Longs.fromByteArray(dest.getFileId());
+        Path destPath = _id_cache.inverse().get(destId);
+        if (!Files.exists(destPath)) {
+            throw new NoEntException();
+        }
+        Path srcFile = srcPath.resolve(oldName);
+        if (!Files.exists(srcFile)) {
+            throw new NoEntException();
+        }
+        Long id =_id_cache.get(srcFile);
+        Path destFile = destPath.resolve(newName);
+        if (Files.exists(destFile)) {
+            throw new ExistException();
+        }
+        Files.move(destPath, destFile, StandardCopyOption.ATOMIC_MOVE);
+        _id_cache.remove(srcFile);
+        _id_cache.put(destPath, id);
+        return true;
     }
 
     @Override
     public Inode parentOf(Inode inode) throws IOException {
         Path path = resolve(inode);
         if (path.equals(_root)) {
-            throw new ChimeraNFSException(nfsstat.NFSERR_NOENT, "no parent");
+            throw new NoEntException("no parent");
         }
         Path parent = path.getParent();
         long id = getOrCreateId(parent);
@@ -143,7 +176,15 @@ public class LocalFileSystem implements VirtualFileSystem {
 
     @Override
     public int read(Inode inode, byte[] data, long offset, int count) throws IOException {
-        throw new UnsupportedOperationException("Not supported yet.");
+        long srcId = Longs.fromByteArray(inode.getFileId());
+        Path srcPath = _id_cache.inverse().get(srcId);
+        if (!Files.exists(srcPath)) {
+            throw new NoEntException();
+        }
+        ByteBuffer destBuffer = ByteBuffer.wrap(data, 0, count);
+        try (FileChannel channel = FileChannel.open(srcPath, StandardOpenOption.READ)) {
+            return channel.read(destBuffer, offset);
+        }
     }
 
     @Override
@@ -164,7 +205,21 @@ public class LocalFileSystem implements VirtualFileSystem {
     }
 
     @Override
-    public int write(Inode inode, byte[] data, long offset, int count) throws IOException {
+    public WriteResult write(Inode inode, byte[] data, long offset, int count, StabilityLevel stabilityLevel) throws IOException {
+        long srcId = Longs.fromByteArray(inode.getFileId());
+        Path srcPath = _id_cache.inverse().get(srcId);
+        if (!Files.exists(srcPath)) {
+            throw new NoEntException();
+        }
+        ByteBuffer srcBuffer = ByteBuffer.wrap(data, 0, count);
+        try (FileChannel channel = FileChannel.open(srcPath, StandardOpenOption.WRITE)) {
+            int bytesWritten = channel.write(srcBuffer, offset);
+            return new WriteResult(StabilityLevel.FILE_SYNC, bytesWritten);
+        }
+    }
+
+    @Override
+    public void commit(Inode inode, long l, int i) throws IOException {
         throw new UnsupportedOperationException("Not supported yet.");
     }
 
