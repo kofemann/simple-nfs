@@ -1,6 +1,5 @@
 package org.dcache.simplenfs;
 
-import java.io.File;
 import org.dcache.nfs.ExportFile;
 import org.dcache.nfs.v3.MountServer;
 import org.dcache.nfs.v3.NfsServerV3;
@@ -13,6 +12,10 @@ import org.dcache.nfs.vfs.VirtualFileSystem;
 import org.dcache.xdr.OncRpcProgram;
 import org.dcache.xdr.OncRpcSvc;
 import org.dcache.xdr.OncRpcSvcBuilder;
+import org.kohsuke.args4j.CmdLineException;
+import org.kohsuke.args4j.CmdLineParser;
+
+import java.net.URL;
 
 /**
  *
@@ -22,14 +25,29 @@ public class App {
 
     public static void main(String[] args) throws Exception {
 
-        VirtualFileSystem vfs = new LocalFileSystem(new File("/home/tigran/work"));
+        Arguments arguments = new Arguments();
+        CmdLineParser parser = new CmdLineParser(arguments);
+        try {
+            parser.parseArgument(args);
+        } catch( CmdLineException e ) {
+            throw new IllegalArgumentException(e);
+        }
+
+        VirtualFileSystem vfs = new LocalFileSystem(arguments.getRoot());
         OncRpcSvc nfsSvc = new OncRpcSvcBuilder()
                 .withPort(2049)
                 .withTCP()
                 .withAutoPublish()
                 .build();
 
-        ExportFile exportFile = new ExportFile(new File("exports"));
+        ExportFile exportFile;
+        if (arguments.getExportsFile()!=null) {
+            exportFile = new ExportFile(arguments.getExportsFile());
+        } else {
+            URL exportsUrl = App.class.getClassLoader().getResource("exports");
+            exportFile = new ExportFile(exportsUrl);
+        }
+
         NFSServerV41 nfs4 = new NFSServerV41(
                 new MDSOperationFactory(),
                 new DeviceManager(),
