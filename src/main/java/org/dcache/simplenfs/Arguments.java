@@ -9,6 +9,8 @@ public class Arguments {
     private File root;
     @Option(name = "-exportsFile")
     private File exportsFile = null;
+    @Option(name= "-port")
+    private int rpcPort = 2049;
 
     public File getRoot() {
         return root;
@@ -24,5 +26,13 @@ public class Arguments {
 
     public void setExportsFile(File exportsFile) {
         this.exportsFile = exportsFile;
+    }
+
+    public int getRpcPort() {
+        return rpcPort;
+    }
+
+    public void setRpcPort(int rpcPort) {
+        this.rpcPort = rpcPort;
     }
 }

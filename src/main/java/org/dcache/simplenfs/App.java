@@ -6,7 +6,6 @@ import org.dcache.nfs.v3.NfsServerV3;
 import org.dcache.nfs.v4.DeviceManager;
 import org.dcache.nfs.v4.MDSOperationFactory;
 import org.dcache.nfs.v4.NFSServerV41;
-import org.dcache.nfs.v4.SimpleIdMap;
 import org.dcache.nfs.v4.xdr.nfs4_prot;
 import org.dcache.nfs.vfs.VirtualFileSystem;
 import org.dcache.xdr.OncRpcProgram;
@@ -33,14 +32,6 @@ public class App {
             throw new IllegalArgumentException(e);
         }
 
-        VirtualFileSystem vfs = new LocalFileSystem(arguments.getRoot());
-        OncRpcSvc nfsSvc = new OncRpcSvcBuilder()
-                .withPort(2049)
-                .withTCP()
-                .withAutoPublish()
-                .withWorkerThreadIoStrategy()
-                .build();
-
         ExportFile exportFile;
         if (arguments.getExportsFile()!=null) {
             exportFile = new ExportFile(arguments.getExportsFile());
@@ -48,6 +39,15 @@ public class App {
             URL exportsUrl = App.class.getClassLoader().getResource("exports");
             exportFile = new ExportFile(exportsUrl);
         }
+
+        VirtualFileSystem vfs = new LocalFileSystem(arguments.getRoot(), exportFile.getExports());
+
+        OncRpcSvc nfsSvc = new OncRpcSvcBuilder()
+                .withPort(arguments.getRpcPort())
+                .withTCP()
+                .withAutoPublish()
+                .withWorkerThreadIoStrategy()
+                .build();
 
         NFSServerV41 nfs4 = new NFSServerV41(
                 new MDSOperationFactory(),

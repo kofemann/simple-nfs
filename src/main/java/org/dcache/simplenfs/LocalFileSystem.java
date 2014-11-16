@@ -4,11 +4,12 @@ import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.primitives.Longs;
 import org.dcache.chimera.UnixPermission;
+import org.dcache.nfs.FsExport;
 import org.dcache.nfs.status.ExistException;
 import org.dcache.nfs.status.NoEntException;
-import org.dcache.nfs.v4.xdr.nfsace4;
 import org.dcache.nfs.v4.NfsIdMapping;
 import org.dcache.nfs.v4.SimpleIdMap;
+import org.dcache.nfs.v4.xdr.nfsace4;
 import org.dcache.nfs.vfs.AclCheckable;
 import org.dcache.nfs.vfs.DirectoryEntry;
 import org.dcache.nfs.vfs.FsStat;
@@ -17,6 +18,7 @@ import org.dcache.nfs.vfs.Stat;
 import org.dcache.nfs.vfs.Stat.Type;
 import org.dcache.nfs.vfs.VirtualFileSystem;
 
+import javax.security.auth.Subject;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -32,7 +34,6 @@ import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
-import javax.security.auth.Subject;
 
 /**
  *
@@ -65,8 +66,19 @@ public class LocalFileSystem implements VirtualFileSystem {
         return _id_cache.inverse().get(toId(inode));
     }
 
-    public LocalFileSystem(File root) {
+    public LocalFileSystem(File root, Iterable<FsExport> exportIterable) {
         _root = root.toPath();
+        assert (Files.exists(_root));
+        try {
+            for (FsExport export : exportIterable) {
+                Path exportRootPath = new File(_root.toFile(), export.getPath()).toPath();
+                if (!Files.exists(exportRootPath)) {
+                    Files.createDirectories(exportRootPath);
+                }
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
         _id_cache.put(_root, fileId.getAndIncrement());
     }
 
