@@ -7,6 +7,8 @@ import org.dcache.chimera.UnixPermission;
 import org.dcache.nfs.status.ExistException;
 import org.dcache.nfs.status.NoEntException;
 import org.dcache.nfs.v4.xdr.nfsace4;
+import org.dcache.nfs.v4.NfsIdMapping;
+import org.dcache.nfs.v4.SimpleIdMap;
 import org.dcache.nfs.vfs.AclCheckable;
 import org.dcache.nfs.vfs.DirectoryEntry;
 import org.dcache.nfs.vfs.FsStat;
@@ -30,6 +32,7 @@ import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.security.auth.Subject;
 
 /**
  *
@@ -39,6 +42,7 @@ public class LocalFileSystem implements VirtualFileSystem {
     private final Path _root;
     private final BiMap<Path, Long> _id_cache = HashBiMap.create();
     private final AtomicLong fileId = new AtomicLong();
+    private final NfsIdMapping _idMapper = new SimpleIdMap();
 
     private long getOrCreateId(Path path) {
         Long id = _id_cache.get(path);
@@ -67,7 +71,7 @@ public class LocalFileSystem implements VirtualFileSystem {
     }
 
     @Override
-    public Inode create(Inode parent, Type type, String path, int uid, int gid, int mode) throws IOException {
+    public Inode create(Inode parent, Type type, String path, Subject subject, int mode) throws IOException {
         long parentId = Longs.fromByteArray(parent.getFileId());
         Path parentPath = _id_cache.inverse().get(parentId);
         Path newPath = parentPath.resolve(path);
@@ -110,7 +114,7 @@ public class LocalFileSystem implements VirtualFileSystem {
     }
 
     @Override
-    public Inode link(Inode parent, Inode link, String path, int uid, int gid) throws IOException {
+    public Inode link(Inode parent, Inode link, String path, Subject subject) throws IOException {
         throw new UnsupportedOperationException("Not supported yet.");
     }
 
@@ -126,7 +130,7 @@ public class LocalFileSystem implements VirtualFileSystem {
     }
 
     @Override
-    public Inode mkdir(Inode parent, String path, int uid, int gid, int mode) throws IOException {
+    public Inode mkdir(Inode parent, String path, Subject subject, int mode) throws IOException {
         long parentId = Longs.fromByteArray(parent.getFileId());
         Path parentPath = _id_cache.inverse().get(parentId);
         Path newPath = parentPath.resolve(path);
@@ -200,7 +204,7 @@ public class LocalFileSystem implements VirtualFileSystem {
     }
 
     @Override
-    public Inode symlink(Inode parent, String path, String link, int uid, int gid, int mode) throws IOException {
+    public Inode symlink(Inode parent, String path, String link, Subject subject, int mode) throws IOException {
         throw new UnsupportedOperationException("Not supported yet.");
     }
 
@@ -310,5 +314,10 @@ public class LocalFileSystem implements VirtualFileSystem {
     @Override
     public AclCheckable getAclCheckable() {
         return AclCheckable.UNDEFINED_ALL;
+    }
+
+    @Override
+    public NfsIdMapping getIdMapper() {
+        return _idMapper;
     }
 }

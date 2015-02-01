@@ -38,6 +38,7 @@ public class App {
                 .withPort(2049)
                 .withTCP()
                 .withAutoPublish()
+                .withWorkerThreadIoStrategy()
                 .build();
 
         ExportFile exportFile;
@@ -52,7 +53,7 @@ public class App {
                 new MDSOperationFactory(),
                 new DeviceManager(),
                 vfs,
-                new SimpleIdMap(), exportFile);
+                exportFile);
 
         NfsServerV3 nfs3 = new NfsServerV3(exportFile, vfs);
         MountServer mountd = new MountServer(exportFile, vfs);
