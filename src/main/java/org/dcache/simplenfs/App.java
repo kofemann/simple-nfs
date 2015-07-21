@@ -3,6 +3,8 @@ package org.dcache.simplenfs;
 import org.dcache.nfs.ExportFile;
 import org.dcache.nfs.v3.MountServer;
 import org.dcache.nfs.v3.NfsServerV3;
+import org.dcache.nfs.v3.xdr.mount_prot;
+import org.dcache.nfs.v3.xdr.nfs3_prot;
 import org.dcache.nfs.v4.DeviceManager;
 import org.dcache.nfs.v4.MDSOperationFactory;
 import org.dcache.nfs.v4.NFSServerV41;
@@ -58,9 +60,8 @@ public class App {
         NfsServerV3 nfs3 = new NfsServerV3(exportFile, vfs);
         MountServer mountd = new MountServer(exportFile, vfs);
 
-        nfsSvc.register(new OncRpcProgram(100003, 3), nfs3);
-        nfsSvc.register(new OncRpcProgram(100005, 3), mountd);
-
+        nfsSvc.register(new OncRpcProgram(mount_prot.MOUNT_PROGRAM, mount_prot.MOUNT_V3), mountd);
+        nfsSvc.register(new OncRpcProgram(nfs3_prot.NFS_PROGRAM, nfs3_prot.NFS_V3), nfs3);
         nfsSvc.register(new OncRpcProgram(nfs4_prot.NFS4_PROGRAM, nfs4_prot.NFS_V4), nfs4);
         nfsSvc.start();
 
