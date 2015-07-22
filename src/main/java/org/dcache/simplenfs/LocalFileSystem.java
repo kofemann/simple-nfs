@@ -66,8 +66,8 @@ public class LocalFileSystem implements VirtualFileSystem {
         return _id_cache.inverse().get(toId(inode));
     }
 
-    public LocalFileSystem(File root, Iterable<FsExport> exportIterable) {
-        _root = root.toPath();
+    public LocalFileSystem(Path root, Iterable<FsExport> exportIterable) {
+        _root = root;
         assert (Files.exists(_root));
         try {
             for (FsExport export : exportIterable) {
