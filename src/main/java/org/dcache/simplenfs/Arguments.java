@@ -2,27 +2,37 @@ package org.dcache.simplenfs;
 
 import org.kohsuke.args4j.Option;
 
-import java.io.File;
+import java.nio.file.Path;
 
 public class Arguments {
-    @Option(name = "-root", required = true)
-    private File root;
+    @Option(name = "-root")
+    private Path root = null;
     @Option(name = "-exportsFile")
-    private File exportsFile = null;
+    private Path exportsFile = null;
+    @Option(name= "-port")
+    private int rpcPort = 2049;
 
-    public File getRoot() {
+    public Path getRoot() {
         return root;
     }
 
-    public void setRoot(File root) {
+    public void setRoot(Path root) {
         this.root = root;
     }
 
-    public File getExportsFile() {
+    public Path getExportsFile() {
         return exportsFile;
     }
 
-    public void setExportsFile(File exportsFile) {
+    public void setExportsFile(Path exportsFile) {
         this.exportsFile = exportsFile;
+    }
+
+    public int getRpcPort() {
+        return rpcPort;
+    }
+
+    public void setRpcPort(int rpcPort) {
+        this.rpcPort = rpcPort;
     }
 }
