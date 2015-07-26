@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.stream.Collectors;
 
 public class SimpleNfsServer implements Closeable {
     private final OncRpcSvc nfsSvc;
@@ -45,7 +46,7 @@ public class SimpleNfsServer implements Closeable {
             }
             this.root = root;
 
-            VirtualFileSystem vfs = new LocalFileSystem(this.root, exportFile.getExports());
+            VirtualFileSystem vfs = new LocalFileSystem(this.root, exportFile.getExports().collect(Collectors.toList()));
 
             nfsSvc = new OncRpcSvcBuilder()
                     .withPort(this.port)
