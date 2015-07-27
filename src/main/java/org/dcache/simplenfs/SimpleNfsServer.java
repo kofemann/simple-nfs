@@ -25,12 +25,13 @@ public class SimpleNfsServer implements Closeable {
     private final OncRpcSvc nfsSvc;
     private final Path root;
     private final int port;
+    private final String name;
 
     public SimpleNfsServer(Path root) {
-        this(null, root, null);
+        this(null, root, null, null);
     }
 
-    public SimpleNfsServer(Integer port, Path root, ExportFile exportFile) {
+    public SimpleNfsServer(Integer port, Path root, ExportFile exportFile, String name) {
         try {
             if (exportFile == null) {
                 exportFile = new ExportFile(new InputStreamReader(SimpleNfsServer.class.getClassLoader().getResourceAsStream("exports")));
@@ -46,6 +47,11 @@ public class SimpleNfsServer implements Closeable {
             }
             this.root = root;
 
+            if (name == null) {
+                name = "nfs@" + this.port;
+            }
+            this.name = name;
+
             VirtualFileSystem vfs = new LocalFileSystem(this.root, exportFile.getExports().collect(Collectors.toList()));
 
             nfsSvc = new OncRpcSvcBuilder()
@@ -53,6 +59,7 @@ public class SimpleNfsServer implements Closeable {
                     .withTCP()
                     .withAutoPublish()
                     .withWorkerThreadIoStrategy()
+                    .withServiceName(this.name)
                     .build();
 
             NFSServerV41 nfs4 = new NFSServerV41(

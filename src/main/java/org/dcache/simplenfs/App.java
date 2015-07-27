@@ -20,7 +20,7 @@ public class App {
             exportFile = new ExportFile(arguments.getExportsFile().toFile());
         }
 
-        try (SimpleNfsServer ignored = new SimpleNfsServer(arguments.getRpcPort(), arguments.getRoot(), exportFile)) {
+        try (SimpleNfsServer ignored = new SimpleNfsServer(arguments.getRpcPort(), arguments.getRoot(), exportFile, null)) {
             //noinspection ResultOfMethodCallIgnored
             System.in.read(); //any key to shutdown
         }
