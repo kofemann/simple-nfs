@@ -3,7 +3,6 @@ package org.dcache.simplenfs;
 import com.google.common.primitives.Longs;
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
 import org.cliffc.high_scale_lib.NonBlockingHashMapLong;
-import org.dcache.chimera.UnixPermission;
 import org.dcache.nfs.FsExport;
 import org.dcache.nfs.status.ExistException;
 import org.dcache.nfs.status.NoEntException;
@@ -46,6 +45,16 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  */
 public class LocalFileSystem implements VirtualFileSystem {
+
+    static public final int S_IRUSR = 00400; // owner has read permission
+    static public final int S_IWUSR = 00200; // owner has write permission
+    static public final int S_IXUSR = 00100; // owner has execute permission
+    static public final int S_IRGRP = 00040; // group has read permission
+    static public final int S_IWGRP = 00020; // group has write permission
+    static public final int S_IXGRP = 00010; // group has execute permission
+    static public final int S_IROTH = 00004; // others have read permission
+    static public final int S_IWOTH = 00002; // others have write permission
+    static public final int S_IXOTH = 00001; // others have execute
 
     private final Path _root;
     private final NonBlockingHashMapLong<Path> inodeToPath = new NonBlockingHashMapLong<>();
@@ -347,15 +356,15 @@ public class LocalFileSystem implements VirtualFileSystem {
 
         for(PosixFilePermission perm: attributes.permissions()) {
             switch(perm) {
-                case GROUP_EXECUTE:  mode |= UnixPermission.S_IXGRP;  break;
-                case GROUP_READ:     mode |= UnixPermission.S_IRGRP;  break;
-                case GROUP_WRITE:    mode |= UnixPermission.S_IWGRP;  break;
-                case OTHERS_EXECUTE: mode |= UnixPermission.S_IXOTH;  break;
-                case OTHERS_READ:    mode |= UnixPermission.S_IROTH;  break;
-                case OTHERS_WRITE:   mode |= UnixPermission.S_IWOTH;  break;
-                case OWNER_EXECUTE:  mode |= UnixPermission.S_IXUSR;  break;
-                case OWNER_READ:     mode |= UnixPermission.S_IRUSR;  break;
-                case OWNER_WRITE:    mode |= UnixPermission.S_IWUSR;  break;
+                case GROUP_EXECUTE:  mode |= S_IXGRP;  break;
+                case GROUP_READ:     mode |= S_IRGRP;  break;
+                case GROUP_WRITE:    mode |= S_IWGRP;  break;
+                case OTHERS_EXECUTE: mode |= S_IXOTH;  break;
+                case OTHERS_READ:    mode |= S_IROTH;  break;
+                case OTHERS_WRITE:   mode |= S_IWOTH;  break;
+                case OWNER_EXECUTE:  mode |= S_IXUSR;  break;
+                case OWNER_READ:     mode |= S_IRUSR;  break;
+                case OWNER_WRITE:    mode |= S_IWUSR;  break;
             }
         }
         return mode;
