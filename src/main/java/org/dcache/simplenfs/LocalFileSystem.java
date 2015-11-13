@@ -3,6 +3,9 @@ package org.dcache.simplenfs;
 import com.google.common.primitives.Longs;
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
 import org.cliffc.high_scale_lib.NonBlockingHashMapLong;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.dcache.nfs.FsExport;
 import org.dcache.nfs.status.ExistException;
 import org.dcache.nfs.status.NoEntException;
@@ -19,48 +22,54 @@ import org.dcache.nfs.vfs.Stat.Type;
 import org.dcache.nfs.vfs.VirtualFileSystem;
 
 import javax.security.auth.Subject;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileStore;
+import java.nio.file.FileSystems;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.BasicFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
+import java.nio.file.attribute.GroupPrincipal;
 import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFileAttributes;
-import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.UserPrincipal;
+import java.nio.file.attribute.UserPrincipalLookupService;
+import java.security.Principal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+
+import org.dcache.auth.GidPrincipal;
+import org.dcache.auth.UidPrincipal;
+import org.dcache.nfs.status.NotSuppException;
+import org.dcache.nfs.status.PermException;
+import org.dcache.nfs.status.ServerFaultException;
+
+import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
 
 /**
  *
  */
 public class LocalFileSystem implements VirtualFileSystem {
 
-    static public final int S_IRUSR = 00400; // owner has read permission
-    static public final int S_IWUSR = 00200; // owner has write permission
-    static public final int S_IXUSR = 00100; // owner has execute permission
-    static public final int S_IRGRP = 00040; // group has read permission
-    static public final int S_IWGRP = 00020; // group has write permission
-    static public final int S_IXGRP = 00010; // group has execute permission
-    static public final int S_IROTH = 00004; // others have read permission
-    static public final int S_IWOTH = 00002; // others have write permission
-    static public final int S_IXOTH = 00001; // others have execute
+    private static final Logger LOG = LoggerFactory.getLogger(LocalFileSystem.class);
 
     private final Path _root;
     private final NonBlockingHashMapLong<Path> inodeToPath = new NonBlockingHashMapLong<>();
     private final NonBlockingHashMap<Path, Long> pathToInode = new NonBlockingHashMap<>();
     private final AtomicLong fileId = new AtomicLong(1); //numbering starts at 1
     private final NfsIdMapping _idMapper = new SimpleIdMap();
+    private final UserPrincipalLookupService _lookupService =
+            FileSystems.getDefault().getUserPrincipalLookupService();
 
     private Inode toFh(long inodeNumber) {
         return Inode.forFile(Longs.toByteArray(inodeNumber));
@@ -165,6 +174,7 @@ public class LocalFileSystem implements VirtualFileSystem {
         }
         long newInodeNumber = fileId.getAndIncrement();
         map(newInodeNumber, newPath);
+        setOwnershipAndMode(newPath, subject, mode);
         return toFh(newInodeNumber);
     }
 
@@ -195,8 +205,30 @@ public class LocalFileSystem implements VirtualFileSystem {
     }
 
     @Override
-    public Inode link(Inode parent, Inode link, String path, Subject subject) throws IOException {
-        throw new UnsupportedOperationException("Not supported yet.");
+    public Inode link(Inode parent, Inode existing, String target, Subject subject) throws IOException {
+        long parentInodeNumber = getInodeNumber(parent);
+        Path parentPath = resolveInode(parentInodeNumber);
+
+        long existingInodeNumber = getInodeNumber(existing);
+        Path existingPath = resolveInode(existingInodeNumber);
+
+        Path targetPath = parentPath.resolve(target);
+
+        try {
+            Files.createLink(targetPath, existingPath);
+        } catch (UnsupportedOperationException e) {
+            throw new NotSuppException("Not supported", e);
+        } catch (FileAlreadyExistsException e) {
+            throw new ExistException("Path exists " + target, e);
+        } catch (SecurityException e) {
+            throw new PermException("Permission denied: " + e.getMessage(), e);
+        } catch (IOException e) {
+            throw new ServerFaultException("Failed to create: " + e.getMessage(), e);
+        }
+
+        long newInodeNumber = fileId.getAndIncrement();
+        map(newInodeNumber, targetPath);
+        return toFh(newInodeNumber);
     }
 
     @Override
@@ -228,7 +260,47 @@ public class LocalFileSystem implements VirtualFileSystem {
         }
         long newInodeNumber = fileId.getAndIncrement();
         map(newInodeNumber, newPath);
+        setOwnershipAndMode(newPath, subject, mode);
         return toFh(newInodeNumber);
+    }
+
+    private void setOwnershipAndMode(Path target, Subject subject, int mode)
+    {
+        int uid = -1;
+        int gid = -1;
+        for (Principal principal : subject.getPrincipals()) {
+            if (principal instanceof UidPrincipal) {
+                uid = (int) ((UidPrincipal)principal).getUid();
+            }
+            if (principal instanceof GidPrincipal) {
+                gid = (int) ((GidPrincipal)principal).getGid();
+            }
+        }
+
+        if (uid != -1) {
+            try {
+                Files.setAttribute(target, "unix:uid", uid, NOFOLLOW_LINKS);
+            } catch (IOException e) {
+                LOG.warn("Unable to chown file {}: {}", target, e.getMessage());
+            }
+        } else {
+            LOG.warn("File created without uid: {}", target);
+        }
+        if (gid != -1) {
+            try {
+                Files.setAttribute(target, "unix:gid", gid, NOFOLLOW_LINKS);
+            } catch (IOException e) {
+                LOG.warn("Unable to chown file {}: {}", target, e.getMessage());
+            }
+        } else {
+            LOG.warn("File created without gid: {}", target);
+        }
+
+        try {
+            Files.setAttribute(target, "unix:mode", mode, NOFOLLOW_LINKS);
+        } catch (IOException e) {
+            LOG.warn("Unable to set mode of file {}: {}", target, e.getMessage());
+        }
     }
 
     @Override
@@ -297,8 +369,31 @@ public class LocalFileSystem implements VirtualFileSystem {
     }
 
     @Override
-    public Inode symlink(Inode parent, String path, String link, Subject subject, int mode) throws IOException {
-        throw new UnsupportedOperationException("Not supported yet.");
+    public Inode symlink(Inode parent, String linkName, String targetName, Subject subject, int mode) throws IOException {
+        long parentInodeNumber = getInodeNumber(parent);
+        Path parentPath = resolveInode(parentInodeNumber);
+        Path link = parentPath.resolve(linkName);
+        Path target = parentPath.resolve(targetName);
+        if (!targetName.startsWith("/")) {
+            target = parentPath.relativize(target);
+        }
+        try {
+            Files.createSymbolicLink(link, target);
+        } catch (UnsupportedOperationException e) {
+            throw new NotSuppException("Not supported", e);
+        } catch (FileAlreadyExistsException e) {
+            throw new ExistException("Path exists " + linkName, e);
+        } catch (SecurityException e) {
+            throw new PermException("Permission denied: " + e.getMessage(), e);
+        } catch (IOException e) {
+            throw new ServerFaultException("Failed to create: " + e.getMessage(), e);
+        }
+
+        setOwnershipAndMode(link, subject, mode);
+
+        long newInodeNumber = fileId.getAndIncrement();
+        map(newInodeNumber, link);
+        return toFh(newInodeNumber);
     }
 
     @Override
@@ -318,7 +413,7 @@ public class LocalFileSystem implements VirtualFileSystem {
     }
 
     private Stat statPath(Path p, long inodeNumber) throws IOException {
-        PosixFileAttributes attrs = Files.getFileAttributeView(p, PosixFileAttributeView.class).readAttributes();
+        PosixFileAttributes attrs = Files.getFileAttributeView(p, PosixFileAttributeView.class, NOFOLLOW_LINKS).readAttributes();
 
         Stat stat = new Stat();
 
@@ -326,48 +421,19 @@ public class LocalFileSystem implements VirtualFileSystem {
         stat.setCTime(attrs.creationTime().toMillis());
         stat.setMTime(attrs.lastModifiedTime().toMillis());
 
-        // FIXME
-        stat.setGid(0);
-        stat.setUid(0);
+        stat.setGid((Integer)Files.getAttribute(p, "unix:gid", NOFOLLOW_LINKS));
+        stat.setUid((Integer)Files.getAttribute(p, "unix:uid", NOFOLLOW_LINKS));
+        stat.setMode((Integer)Files.getAttribute(p, "unix:mode", NOFOLLOW_LINKS));
+        stat.setNlink((Integer)Files.getAttribute(p, "unix:nlink", NOFOLLOW_LINKS));
 
         stat.setDev(17);
         stat.setIno((int) inodeNumber);
-        stat.setMode(toUnixMode(attrs));
-        stat.setNlink(1);
         stat.setRdev(17);
         stat.setSize(attrs.size());
         stat.setFileid(attrs.fileKey().hashCode());
         stat.setGeneration(attrs.lastModifiedTime().toMillis());
 
         return stat;
-    }
-
-    private int toUnixMode(PosixFileAttributes attributes) {
-        int mode = 0;
-        if (attributes.isDirectory()) {
-            mode |= Stat.S_IFDIR;
-        } else if (attributes.isRegularFile()) {
-            mode |= Stat.S_IFREG;
-        } else if (attributes.isSymbolicLink()) {
-            mode |= Stat.S_IFLNK;
-        } else {
-            mode |= Stat.S_IFSOCK;
-        }
-
-        for(PosixFilePermission perm: attributes.permissions()) {
-            switch(perm) {
-                case GROUP_EXECUTE:  mode |= S_IXGRP;  break;
-                case GROUP_READ:     mode |= S_IRGRP;  break;
-                case GROUP_WRITE:    mode |= S_IWGRP;  break;
-                case OTHERS_EXECUTE: mode |= S_IXOTH;  break;
-                case OTHERS_READ:    mode |= S_IROTH;  break;
-                case OTHERS_WRITE:   mode |= S_IWOTH;  break;
-                case OWNER_EXECUTE:  mode |= S_IXUSR;  break;
-                case OWNER_READ:     mode |= S_IRUSR;  break;
-                case OWNER_WRITE:    mode |= S_IWUSR;  break;
-            }
-        }
-        return mode;
     }
 
     @Override
@@ -386,15 +452,31 @@ public class LocalFileSystem implements VirtualFileSystem {
     public void setattr(Inode inode, Stat stat) throws IOException {
         long inodeNumber = getInodeNumber(inode);
         Path path = resolveInode(inodeNumber);
-        BasicFileAttributeView attributeView = Files.getFileAttributeView(path, BasicFileAttributeView.class);
-        //TODO - implement fully
-        FileTime aTime = null;
-        FileTime mTime = null;
+        PosixFileAttributeView attributeView = Files.getFileAttributeView(path, PosixFileAttributeView.class, NOFOLLOW_LINKS);
         if (stat.isDefined(Stat.StatAttribute.OWNER)) {
-            throw new UnsupportedOperationException("set oid unsupported");
+            try {
+                String uid = String.valueOf(stat.getUid());
+                UserPrincipal user = _lookupService.lookupPrincipalByName(uid);
+                attributeView.setOwner(user);
+            } catch (IOException e) {
+                throw new UnsupportedOperationException("set uid failed: " + e.getMessage());
+            }
         }
         if (stat.isDefined(Stat.StatAttribute.GROUP)) {
-            throw new UnsupportedOperationException("set gid unsupported");
+            try {
+                String gid = String.valueOf(stat.getGid());
+                GroupPrincipal group = _lookupService.lookupPrincipalByGroupName(gid);
+                attributeView.setGroup(group);
+            } catch (IOException e) {
+                throw new UnsupportedOperationException("set gid failed: " + e.getMessage());
+            }
+        }
+        if (stat.isDefined(Stat.StatAttribute.MODE)) {
+            try {
+                Files.setAttribute(path, "unix:mode", stat.getMode(), NOFOLLOW_LINKS);
+            } catch (IOException e) {
+                throw new UnsupportedOperationException("set mode unsupported: " + e.getMessage());
+            }
         }
         if (stat.isDefined(Stat.StatAttribute.SIZE)) {
             //little known fact - truncate() returns the original channel
@@ -402,13 +484,28 @@ public class LocalFileSystem implements VirtualFileSystem {
             try (FileChannel ignored = FileChannel.open(path, StandardOpenOption.WRITE).truncate(stat.getSize())) {}
         }
         if (stat.isDefined(Stat.StatAttribute.ATIME)) {
-            throw new UnsupportedOperationException("set atime unsupported");
+            try {
+                FileTime time = FileTime.fromMillis(stat.getCTime());
+                Files.setAttribute(path, "unix:atime", time, NOFOLLOW_LINKS);
+            } catch (IOException e) {
+                throw new UnsupportedOperationException("set atime failed: " + e.getMessage());
+            }
         }
         if (stat.isDefined(Stat.StatAttribute.MTIME)) {
-            mTime = FileTime.fromMillis(stat.getMTime());
+            try {
+                FileTime time = FileTime.fromMillis(stat.getMTime());
+                Files.setAttribute(path, "unix:mtime", time, NOFOLLOW_LINKS);
+            } catch (IOException e) {
+                throw new UnsupportedOperationException("set mtime failed: " + e.getMessage());
+            }
         }
-        if (aTime != null || mTime != null) {
-            attributeView.setTimes(mTime, aTime, null);
+        if (stat.isDefined(Stat.StatAttribute.CTIME)) {
+            try {
+                FileTime time = FileTime.fromMillis(stat.getCTime());
+                Files.setAttribute(path, "unix:ctime", time, NOFOLLOW_LINKS);
+            } catch (IOException e) {
+                throw new UnsupportedOperationException("set ctime failed: " + e.getMessage());
+            }
         }
     }
 
