@@ -486,7 +486,7 @@ public class LocalFileSystem implements VirtualFileSystem {
         if (stat.isDefined(Stat.StatAttribute.ATIME)) {
             try {
                 FileTime time = FileTime.fromMillis(stat.getCTime());
-                Files.setAttribute(path, "unix:atime", time, NOFOLLOW_LINKS);
+                Files.setAttribute(path, "unix:lastAccessTime", time, NOFOLLOW_LINKS);
             } catch (IOException e) {
                 throw new UnsupportedOperationException("set atime failed: " + e.getMessage());
             }
@@ -494,7 +494,7 @@ public class LocalFileSystem implements VirtualFileSystem {
         if (stat.isDefined(Stat.StatAttribute.MTIME)) {
             try {
                 FileTime time = FileTime.fromMillis(stat.getMTime());
-                Files.setAttribute(path, "unix:mtime", time, NOFOLLOW_LINKS);
+                Files.setAttribute(path, "unix:lastModifiedTime", time, NOFOLLOW_LINKS);
             } catch (IOException e) {
                 throw new UnsupportedOperationException("set mtime failed: " + e.getMessage());
             }
