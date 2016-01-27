@@ -129,7 +129,8 @@ public class LocalFileSystem implements VirtualFileSystem {
         _root = root;
         assert (Files.exists(_root));
         for (FsExport export : exportIterable) {
-            Path exportRootPath = root.resolve(export.getPath());
+            String relativeExportPath = export.getPath().substring(1); // remove the opening '/'
+            Path exportRootPath = root.resolve(relativeExportPath);
             if (!Files.exists(exportRootPath)) {
                 Files.createDirectories(exportRootPath);
             }
