@@ -7,6 +7,7 @@
     <version>1.0-SNAPSHOT</version>
 
     <name>Simple nfs server</name>
+    <url>http://www.dcache.org/</url>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -25,28 +26,35 @@
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <version>2.5</version>
-                <configuration>
-                    <archive>
-                        <manifest>
-                            <mainClass>org.dcache.simplenfs.App</mainClass>
-                        </manifest>
-                    </archive>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.dstovall</groupId>
-                <artifactId>onejar-maven-plugin</artifactId>
-                <version>1.4.4</version>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <version>2.6</version>
                 <executions>
                     <execution>
-                        <configuration>
-                            <attachToBuild>true</attachToBuild>
-                        </configuration>
                         <goals>
-                            <goal>one-jar</goal>
+                            <goal>attached</goal>
                         </goals>
+                        <phase>package</phase>
+                        <configuration>
+                            <descriptorRefs>
+                                <descriptorRef>jar-with-dependencies</descriptorRef>
+                            </descriptorRefs>
+                            <archive>
+                                <manifest>
+                                    <mainClass>org.dcache.simplenfs.App</mainClass>
+                                    <packageName>org.dcache.simplenfs</packageName>
+                                    <addExtensions />
+                                </manifest>
+                                <manifestEntries>
+                                    <mode>development</mode>
+				    <Implementation-Title>org.dcache.simplenfs</Implementation-Title>
+				    <Implementation-Version>${project.version}</Implementation-Version>
+                                    <Implementation-Build>${buildNumber}</Implementation-Build>
+				    <Implementation-Vendor>dCache</Implementation-Vendor>
+                                    <url>${project.url}</url>
+                                    <Build-Time>${maven.build.timestamp}</Build-Time>
+                                </manifestEntries>
+                            </archive>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
