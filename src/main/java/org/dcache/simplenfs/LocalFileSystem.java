@@ -37,10 +37,12 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.BasicFileAttributeView;
+import java.nio.file.attribute.DosFileAttributeView;
+import java.nio.file.attribute.DosFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.GroupPrincipal;
 import java.nio.file.attribute.PosixFileAttributeView;
-import java.nio.file.attribute.PosixFileAttributes;
 import java.nio.file.attribute.UserPrincipal;
 import java.nio.file.attribute.UserPrincipalLookupService;
 import java.security.Principal;
@@ -71,6 +73,11 @@ public class LocalFileSystem implements VirtualFileSystem {
     private final UserPrincipalLookupService _lookupService =
             FileSystems.getDefault().getUserPrincipalLookupService();
 
+    private final static boolean IS_UNIX;
+    static {
+        IS_UNIX = !System.getProperty("os.name").startsWith("Win");
+    }
+    
     private Inode toFh(long inodeNumber) {
         return Inode.forFile(Longs.toByteArray(inodeNumber));
     }
@@ -267,6 +274,11 @@ public class LocalFileSystem implements VirtualFileSystem {
 
     private void setOwnershipAndMode(Path target, Subject subject, int mode)
     {
+        if (!IS_UNIX) {
+            // FIXME: windows must support some kind of file owhership as well
+            return;
+        }
+
         int uid = -1;
         int gid = -1;
         for (Principal principal : subject.getPrincipals()) {
@@ -414,7 +426,11 @@ public class LocalFileSystem implements VirtualFileSystem {
     }
 
     private Stat statPath(Path p, long inodeNumber) throws IOException {
-        PosixFileAttributes attrs = Files.getFileAttributeView(p, PosixFileAttributeView.class, NOFOLLOW_LINKS).readAttributes();
+        
+        Class<? extends  BasicFileAttributeView> attributeClass =
+                IS_UNIX ? PosixFileAttributeView.class : DosFileAttributeView.class;
+
+        BasicFileAttributes attrs = Files.getFileAttributeView(p, attributeClass, NOFOLLOW_LINKS).readAttributes();
 
         Stat stat = new Stat();
 
@@ -422,16 +438,25 @@ public class LocalFileSystem implements VirtualFileSystem {
         stat.setCTime(attrs.creationTime().toMillis());
         stat.setMTime(attrs.lastModifiedTime().toMillis());
 
-        stat.setGid((Integer)Files.getAttribute(p, "unix:gid", NOFOLLOW_LINKS));
-        stat.setUid((Integer)Files.getAttribute(p, "unix:uid", NOFOLLOW_LINKS));
-        stat.setMode((Integer)Files.getAttribute(p, "unix:mode", NOFOLLOW_LINKS));
-        stat.setNlink((Integer)Files.getAttribute(p, "unix:nlink", NOFOLLOW_LINKS));
+        if (IS_UNIX) {
+            stat.setGid((Integer) Files.getAttribute(p, "unix:gid", NOFOLLOW_LINKS));
+            stat.setUid((Integer) Files.getAttribute(p, "unix:uid", NOFOLLOW_LINKS));
+            stat.setMode((Integer) Files.getAttribute(p, "unix:mode", NOFOLLOW_LINKS));
+            stat.setNlink((Integer) Files.getAttribute(p, "unix:nlink", NOFOLLOW_LINKS));
+        } else {
+            DosFileAttributes dosAttrs = (DosFileAttributes)attrs;
+            stat.setGid(0);
+            stat.setUid(0);
+            int type = dosAttrs.isDirectory() ? Stat.S_IFDIR : Stat.S_IFREG;
+            stat.setMode( type |(dosAttrs.isReadOnly()? 0600 : 0400));
+            stat.setNlink(1);            
+        }
 
         stat.setDev(17);
         stat.setIno((int) inodeNumber);
         stat.setRdev(17);
         stat.setSize(attrs.size());
-        stat.setFileid(attrs.fileKey().hashCode());
+        stat.setFileid((int) inodeNumber);
         stat.setGeneration(attrs.lastModifiedTime().toMillis());
 
         return stat;
@@ -451,6 +476,11 @@ public class LocalFileSystem implements VirtualFileSystem {
 
     @Override
     public void setattr(Inode inode, Stat stat) throws IOException {
+        if (!IS_UNIX) {
+            // FIXME: windows must support some kind of attribute update as well
+            return;
+        }
+
         long inodeNumber = getInodeNumber(inode);
         Path path = resolveInode(inodeNumber);
         PosixFileAttributeView attributeView = Files.getFileAttributeView(path, PosixFileAttributeView.class, NOFOLLOW_LINKS);
