@@ -55,6 +55,7 @@ import org.dcache.auth.UidPrincipal;
 import org.dcache.nfs.status.NotSuppException;
 import org.dcache.nfs.status.PermException;
 import org.dcache.nfs.status.ServerFaultException;
+import org.dcache.nfs.vfs.DirectoryStream;
 
 import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
 
@@ -77,7 +78,7 @@ public class LocalFileSystem implements VirtualFileSystem {
     static {
         IS_UNIX = !System.getProperty("os.name").startsWith("Win");
     }
-    
+
     private Inode toFh(long inodeNumber) {
         return Inode.forFile(Longs.toByteArray(inodeNumber));
     }
@@ -240,20 +241,24 @@ public class LocalFileSystem implements VirtualFileSystem {
     }
 
     @Override
-    public List<DirectoryEntry> list(Inode inode) throws IOException {
+    public DirectoryStream list(Inode inode, byte[] bytes, long l) throws IOException {
         long inodeNumber = getInodeNumber(inode);
         Path path = resolveInode(inodeNumber);
         final List<DirectoryEntry> list = new ArrayList<>();
         Files.newDirectoryStream(path).forEach(p -> {
-            long inodeNumber1;
             try {
-                inodeNumber1 = resolvePath(p);
-                list.add(new DirectoryEntry(p.getFileName().toString(), toFh(inodeNumber1), statPath(p, inodeNumber1)));
+                long cookie = resolvePath(p);
+                list.add(new DirectoryEntry(p.getFileName().toString(), toFh(cookie), statPath(p, cookie), list.size()));
             } catch (Exception e) {
                 throw new IllegalStateException(e);
             }
         });
-        return list;
+        return new DirectoryStream(list);
+    }
+
+    @Override
+    public byte[] directoryVerifier(Inode inode) throws IOException {
+        return DirectoryStream.ZERO_VERIFIER;
     }
 
     @Override
@@ -426,7 +431,7 @@ public class LocalFileSystem implements VirtualFileSystem {
     }
 
     private Stat statPath(Path p, long inodeNumber) throws IOException {
-        
+
         Class<? extends  BasicFileAttributeView> attributeClass =
                 IS_UNIX ? PosixFileAttributeView.class : DosFileAttributeView.class;
 
@@ -449,7 +454,7 @@ public class LocalFileSystem implements VirtualFileSystem {
             stat.setUid(0);
             int type = dosAttrs.isDirectory() ? Stat.S_IFDIR : Stat.S_IFREG;
             stat.setMode( type |(dosAttrs.isReadOnly()? 0600 : 0400));
-            stat.setNlink(1);            
+            stat.setNlink(1);
         }
 
         stat.setDev(17);
