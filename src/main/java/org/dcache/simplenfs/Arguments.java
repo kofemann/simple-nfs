@@ -11,6 +11,8 @@ public class Arguments {
     private Path exportsFile = null;
     @Option(name= "-port")
     private int rpcPort = 2049;
+    @Option(name="-with-portmap")
+    private boolean withPortmap;
 
     public Path getRoot() {
         return root;
@@ -34,5 +36,13 @@ public class Arguments {
 
     public void setRpcPort(int rpcPort) {
         this.rpcPort = rpcPort;
+    }
+
+    public boolean getWithPortmap() {
+        return withPortmap;
+    }
+
+    public void setWithPortmap(boolean withPortmap) {
+        this.withPortmap = withPortmap;
     }
 }
