@@ -1,7 +1,7 @@
 package org.dcache.simplenfs;
 
 import org.dcache.nfs.ExportFile;
-import org.dcache.xdr.portmap.OncRpcEmbeddedPortmap;
+import org.dcache.oncrpc4j.portmap.OncRpcEmbeddedPortmap;
 import org.kohsuke.args4j.CmdLineParser;
 
 /**
