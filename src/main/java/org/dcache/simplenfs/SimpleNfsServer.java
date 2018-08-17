@@ -27,18 +27,15 @@ public class SimpleNfsServer implements Closeable {
     private final String name;
 
     public SimpleNfsServer(Path root) {
-        this(null, root, null, null);
+        this(2049, root, null, null);
     }
 
-    public SimpleNfsServer(Integer port, Path root, ExportFile exportFile, String name) {
+    public SimpleNfsServer(int port, Path root, ExportFile exportFile, String name) {
         try {
             if (exportFile == null) {
                 exportFile = new ExportFile(new InputStreamReader(SimpleNfsServer.class.getClassLoader().getResourceAsStream("exports")));
             }
 
-            if (port == null) {
-                port = 2049;
-            }
             this.port = port;
 
             if (root == null) {
