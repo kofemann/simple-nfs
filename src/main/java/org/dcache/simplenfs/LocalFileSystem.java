@@ -24,6 +24,7 @@ import org.dcache.nfs.vfs.VirtualFileSystem;
 import javax.security.auth.Subject;
 
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.DirectoryNotEmptyException;
@@ -515,9 +516,9 @@ public class LocalFileSystem implements VirtualFileSystem {
             }
         }
         if (stat.isDefined(Stat.StatAttribute.SIZE)) {
-            //little known fact - truncate() returns the original channel
-            //noinspection EmptyTryBlock
-            try (FileChannel ignored = FileChannel.open(path, StandardOpenOption.WRITE).truncate(stat.getSize())) {}
+            try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "w")) {
+                raf.setLength(stat.getSize());
+            }
         }
         if (stat.isDefined(Stat.StatAttribute.ATIME)) {
             try {
