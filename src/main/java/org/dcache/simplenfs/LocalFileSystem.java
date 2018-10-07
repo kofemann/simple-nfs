@@ -246,14 +246,16 @@ public class LocalFileSystem implements VirtualFileSystem {
         long inodeNumber = getInodeNumber(inode);
         Path path = resolveInode(inodeNumber);
         final List<DirectoryEntry> list = new ArrayList<>();
-        Files.newDirectoryStream(path).forEach(p -> {
-            try {
-                long cookie = resolvePath(p);
-                list.add(new DirectoryEntry(p.getFileName().toString(), toFh(cookie), statPath(p, cookie), list.size()));
-            } catch (Exception e) {
-                throw new IllegalStateException(e);
+        try (java.nio.file.DirectoryStream<Path> ds = Files.newDirectoryStream(path)) {
+            int cookie = 2; // first allowed cookie
+            for (Path p : ds) {
+                cookie++;
+                if (cookie > l) {
+                    long ino = resolvePath(p);
+                    list.add(new DirectoryEntry(p.getFileName().toString(), toFh(ino), statPath(p, ino), cookie));
+                }
             }
-        });
+        }
         return new DirectoryStream(list);
     }
 
