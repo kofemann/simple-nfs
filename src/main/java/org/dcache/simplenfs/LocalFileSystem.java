@@ -384,7 +384,7 @@ public class LocalFileSystem implements VirtualFileSystem {
         try {
             Files.delete(targetPath);
         } catch (DirectoryNotEmptyException e) {
-            throw new NotEmptyException("dir " + targetPath + " is note empty");
+            throw new NotEmptyException("dir " + targetPath + " is note empty", e);
         }
         unmap(targetInodeNumber, targetPath);
     }
@@ -498,7 +498,7 @@ public class LocalFileSystem implements VirtualFileSystem {
                 UserPrincipal user = _lookupService.lookupPrincipalByName(uid);
                 attributeView.setOwner(user);
             } catch (IOException e) {
-                throw new UnsupportedOperationException("set uid failed: " + e.getMessage());
+                throw new UnsupportedOperationException("set uid failed: " + e.getMessage(), e);
             }
         }
         if (stat.isDefined(Stat.StatAttribute.GROUP)) {
@@ -507,14 +507,14 @@ public class LocalFileSystem implements VirtualFileSystem {
                 GroupPrincipal group = _lookupService.lookupPrincipalByGroupName(gid);
                 attributeView.setGroup(group);
             } catch (IOException e) {
-                throw new UnsupportedOperationException("set gid failed: " + e.getMessage());
+                throw new UnsupportedOperationException("set gid failed: " + e.getMessage(), e);
             }
         }
         if (stat.isDefined(Stat.StatAttribute.MODE)) {
             try {
                 Files.setAttribute(path, "unix:mode", stat.getMode(), NOFOLLOW_LINKS);
             } catch (IOException e) {
-                throw new UnsupportedOperationException("set mode unsupported: " + e.getMessage());
+                throw new UnsupportedOperationException("set mode unsupported: " + e.getMessage(), e);
             }
         }
         if (stat.isDefined(Stat.StatAttribute.SIZE)) {
@@ -527,7 +527,7 @@ public class LocalFileSystem implements VirtualFileSystem {
                 FileTime time = FileTime.fromMillis(stat.getCTime());
                 Files.setAttribute(path, "unix:lastAccessTime", time, NOFOLLOW_LINKS);
             } catch (IOException e) {
-                throw new UnsupportedOperationException("set atime failed: " + e.getMessage());
+                throw new UnsupportedOperationException("set atime failed: " + e.getMessage(), e);
             }
         }
         if (stat.isDefined(Stat.StatAttribute.MTIME)) {
@@ -535,7 +535,7 @@ public class LocalFileSystem implements VirtualFileSystem {
                 FileTime time = FileTime.fromMillis(stat.getMTime());
                 Files.setAttribute(path, "unix:lastModifiedTime", time, NOFOLLOW_LINKS);
             } catch (IOException e) {
-                throw new UnsupportedOperationException("set mtime failed: " + e.getMessage());
+                throw new UnsupportedOperationException("set mtime failed: " + e.getMessage(), e);
             }
         }
         if (stat.isDefined(Stat.StatAttribute.CTIME)) {
@@ -543,7 +543,7 @@ public class LocalFileSystem implements VirtualFileSystem {
                 FileTime time = FileTime.fromMillis(stat.getCTime());
                 Files.setAttribute(path, "unix:ctime", time, NOFOLLOW_LINKS);
             } catch (IOException e) {
-                throw new UnsupportedOperationException("set ctime failed: " + e.getMessage());
+                throw new UnsupportedOperationException("set ctime failed: " + e.getMessage(), e);
             }
         }
     }
