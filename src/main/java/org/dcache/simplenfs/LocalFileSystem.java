@@ -128,10 +128,23 @@ public class LocalFileSystem implements VirtualFileSystem {
         }
     }
 
-    private void remap(long inodeNumber, Path oldPath, Path newPath) {
+    private void remap(long inodeNumber, Path oldPath, Path newPath) throws IOException {
         //TODO - attempt rollback?
         unmap(inodeNumber, oldPath);
         map(inodeNumber, newPath);
+
+        if (Files.isDirectory(newPath)) {
+            Files.walk(newPath).forEach(file -> {
+                try {
+                    Path oldFile = oldPath.resolve(newPath.relativize(file));
+                    long walkedInodeNumber = resolvePath(oldFile);
+                    unmap(walkedInodeNumber, oldFile);
+                    map(walkedInodeNumber, file);
+                } catch (NoEntException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+        }
     }
 
     public LocalFileSystem(Path root, Iterable<FsExport> exportIterable) throws IOException {
