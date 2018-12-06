@@ -455,8 +455,8 @@ public class LocalFileSystem implements VirtualFileSystem {
             DosFileAttributes dosAttrs = (DosFileAttributes)attrs;
             stat.setGid(0);
             stat.setUid(0);
-            int type = dosAttrs.isDirectory() ? Stat.S_IFDIR : Stat.S_IFREG;
-            stat.setMode( type |(dosAttrs.isReadOnly()? 0600 : 0400));
+            int type = dosAttrs.isSymbolicLink() ? Stat.S_IFLNK : dosAttrs.isDirectory() ? Stat.S_IFDIR : Stat.S_IFREG;
+            stat.setMode( type |(dosAttrs.isReadOnly()? 0400 : 0600));
             stat.setNlink(1);
         }
 
