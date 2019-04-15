@@ -204,12 +204,18 @@ public class LocalFileSystem implements VirtualFileSystem {
     @Override
     public Inode lookup(Inode parent, String path) throws IOException {
         //TODO - several issues
-        //1. we might not deal with "." and ".." properly
         //2. we might accidentally allow composite paths here ("/dome/dir/down")
         //3. we dont actually check that the parent exists
         long parentInodeNumber = getInodeNumber(parent);
         Path parentPath = resolveInode(parentInodeNumber);
-        Path child = parentPath.resolve(path);
+        Path child;
+        if(path.equals(".")) {
+            child = parentPath;
+        } else if(path.equals("..")) {
+            child = parentPath.getParent();
+        } else {
+            child = parentPath.resolve(path);
+        }
         long childInodeNumber = resolvePath(child);
         return toFh(childInodeNumber);
     }
