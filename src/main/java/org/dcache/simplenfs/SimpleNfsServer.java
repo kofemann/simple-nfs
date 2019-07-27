@@ -5,7 +5,7 @@ import org.dcache.nfs.v3.MountServer;
 import org.dcache.nfs.v3.NfsServerV3;
 import org.dcache.nfs.v3.xdr.mount_prot;
 import org.dcache.nfs.v3.xdr.nfs3_prot;
-import org.dcache.nfs.v4.MDSOperationFactory;
+import org.dcache.nfs.v4.MDSOperationExecutor;
 import org.dcache.nfs.v4.NFSServerV41;
 import org.dcache.nfs.v4.xdr.nfs4_prot;
 import org.dcache.nfs.vfs.VirtualFileSystem;
@@ -48,7 +48,7 @@ public class SimpleNfsServer implements Closeable {
             }
             this.name = name;
 
-            VirtualFileSystem vfs = new LocalFileSystem(this.root, exportFile.getExports().collect(Collectors.toList()));
+            VirtualFileSystem vfs = new LocalFileSystem(this.root, exportFile.exports().collect(Collectors.toList()));
 
             nfsSvc = new OncRpcSvcBuilder()
                     .withPort(this.port)
@@ -60,8 +60,8 @@ public class SimpleNfsServer implements Closeable {
 
             NFSServerV41 nfs4 = new NFSServerV41.Builder()
                     .withVfs(vfs)
-                    .withOperationFactory(new MDSOperationFactory())
-                    .withExportFile(exportFile)
+                    .withOperationExecutor(new MDSOperationExecutor())
+                    .withExportTable(exportFile)
                     .build();
 
             NfsServerV3 nfs3 = new NfsServerV3(exportFile, vfs);
