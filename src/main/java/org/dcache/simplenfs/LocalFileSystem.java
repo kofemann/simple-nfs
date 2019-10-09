@@ -524,7 +524,7 @@ public class LocalFileSystem implements VirtualFileSystem {
             }
         }
         if (stat.isDefined(Stat.StatAttribute.SIZE)) {
-            try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "w")) {
+            try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "rw")) {
                 raf.setLength(stat.getSize());
             }
         }
