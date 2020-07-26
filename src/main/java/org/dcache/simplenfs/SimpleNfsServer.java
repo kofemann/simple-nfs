@@ -16,6 +16,7 @@ import org.dcache.oncrpc4j.rpc.OncRpcSvcBuilder;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.stream.Collectors;
@@ -73,7 +74,7 @@ public class SimpleNfsServer implements Closeable {
             nfsSvc.register(new OncRpcProgram(nfs4_prot.NFS4_PROGRAM, nfs4_prot.NFS_V4), nfs4);
             nfsSvc.start();
         } catch (IOException e) {
-            throw new IllegalStateException(e);
+            throw new UncheckedIOException(e);
         }
     }
 
