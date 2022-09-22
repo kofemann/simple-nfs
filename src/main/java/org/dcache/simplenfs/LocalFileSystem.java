@@ -1,6 +1,8 @@
 package org.dcache.simplenfs;
 
 import com.google.common.primitives.Longs;
+import com.sun.security.auth.UnixNumericGroupPrincipal;
+import com.sun.security.auth.UnixNumericUserPrincipal;
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
 import org.cliffc.high_scale_lib.NonBlockingHashMapLong;
 import org.slf4j.Logger;
@@ -51,8 +53,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.dcache.auth.GidPrincipal;
-import org.dcache.auth.UidPrincipal;
 import org.dcache.nfs.status.NotSuppException;
 import org.dcache.nfs.status.PermException;
 import org.dcache.nfs.status.ServerFaultException;
@@ -296,11 +296,11 @@ public class LocalFileSystem implements VirtualFileSystem {
         int uid = -1;
         int gid = -1;
         for (Principal principal : subject.getPrincipals()) {
-            if (principal instanceof UidPrincipal) {
-                uid = (int) ((UidPrincipal)principal).getUid();
+            if (principal instanceof UnixNumericUserPrincipal) {
+                uid = (int) ((UnixNumericUserPrincipal)principal).longValue();
             }
-            if (principal instanceof GidPrincipal) {
-                gid = (int) ((GidPrincipal)principal).getGid();
+            if (principal instanceof UnixNumericGroupPrincipal) {
+                gid = (int) ((UnixNumericGroupPrincipal)principal).longValue();
             }
         }
 
@@ -467,17 +467,16 @@ public class LocalFileSystem implements VirtualFileSystem {
         }
 
         stat.setDev(17);
-        stat.setIno((int) inodeNumber);
+        stat.setIno(inodeNumber);
         stat.setRdev(17);
         stat.setSize(attrs.size());
-        stat.setFileid((int) inodeNumber);
         stat.setGeneration(attrs.lastModifiedTime().toMillis());
 
         return stat;
     }
 
     @Override
-    public int access(Inode inode, int mode) throws IOException {
+    public int access(Subject subject, Inode inode, int mode) throws IOException {
         return mode;
     }
 
@@ -578,4 +577,15 @@ public class LocalFileSystem implements VirtualFileSystem {
     public NfsIdMapping getIdMapper() {
         return _idMapper;
     }
+
+    @Override
+    public boolean getCaseInsensitive() {
+        return true;
+    }
+
+    @Override
+    public boolean getCasePreserving() {
+        return true;
+    }
+
 }
