@@ -104,18 +104,33 @@ public class LocalFileSystem implements VirtualFileSystem {
         return inodeNumber;
     }
 
-    private void map(long inodeNumber, Path path) {
+    /**
+     * Map an inode number to a path.
+     * @param inodeNumber the inode number
+     * @param path the path
+     * @param force if true, overwrite any existing mapping
+     */
+    private void map(long inodeNumber, Path path, boolean force) {
         if (inodeToPath.putIfAbsent(inodeNumber, path) != null) {
             throw new IllegalStateException();
         }
-        Long otherInodeNumber = pathToInode.putIfAbsent(path, inodeNumber);
-        if (otherInodeNumber != null) {
-            //try rollback
-            if (inodeToPath.remove(inodeNumber) != path) {
-                throw new IllegalStateException("cant map, rollback failed");
+
+        if (force) {
+            pathToInode.put(path, inodeNumber);
+        } else {
+            Long otherInodeNumber = pathToInode.putIfAbsent(path, inodeNumber);
+            if (otherInodeNumber != null) {
+                //try rollback
+                if (inodeToPath.remove(inodeNumber) != path) {
+                    throw new IllegalStateException("cant map, rollback failed");
+                }
+                throw new IllegalStateException("path " + path + " already mapped to " + otherInodeNumber);
             }
-            throw new IllegalStateException("path ");
         }
+    }
+
+    private void map(long inodeNumber, Path path) {
+        map(inodeNumber, path, false);
     }
 
     private void unmap(long inodeNumber, Path path) {
@@ -131,7 +146,7 @@ public class LocalFileSystem implements VirtualFileSystem {
     private void remap(long inodeNumber, Path oldPath, Path newPath) {
         //TODO - attempt rollback?
         unmap(inodeNumber, oldPath);
-        map(inodeNumber, newPath);
+        map(inodeNumber, newPath, true);
     }
 
     public LocalFileSystem(Path root, Iterable<FsExport> exportIterable) throws IOException {
