@@ -18,6 +18,8 @@ public class App {
     private Path root;
     @Option(name = "-exports", usage = "path to file with export tables", metaVar = "<file>")
     private Path exportsFile;
+    @Option(name = "-nfsvers", usage = "NFS version (3, 4, 0==3+4) to use", metaVar = "<int>")
+    private int nfsVers = 0;
     @Option(name = "-port", usage = "TCP port to use", metaVar = "<port>")
     private int rpcPort = 2049;
     @Option(name = "-with-portmap", usage = "start embedded portmap")
@@ -52,7 +54,7 @@ public class App {
             new OncRpcEmbeddedPortmap();
         }
 
-        try (SimpleNfsServer ignored = new SimpleNfsServer(rpcPort, root, exportFile, null)) {
+        try (SimpleNfsServer ignored = new SimpleNfsServer(nfsVers, rpcPort, root, exportFile, null)) {
             //noinspection ResultOfMethodCallIgnored
             System.in.read(); //any key to shutdown
         }

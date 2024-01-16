@@ -28,11 +28,16 @@ public class SimpleNfsServer implements Closeable {
     private final String name;
 
     public SimpleNfsServer(Path root) {
-        this(2049, root, null, null);
+        this(0, 2049, root, null, null);
     }
 
-    public SimpleNfsServer(int port, Path root, ExportFile exportFile, String name) {
+    public SimpleNfsServer(int nfsVers, int port, Path root, ExportFile exportFile, String name) {
         try {
+            NfsServerV3 nfs3 = null;
+            NFSServerV41 nfs4 = null;
+            boolean startNfsV3 = ((nfsVers == 0) || (nfsVers == 3));
+            boolean startNfsV4 = ((nfsVers == 0) || (nfsVers == 4));
+
             if (exportFile == null) {
                 exportFile = new ExportFile(new InputStreamReader(SimpleNfsServer.class.getClassLoader().getResourceAsStream("exports")));
             }
@@ -59,19 +64,30 @@ public class SimpleNfsServer implements Closeable {
                     .withServiceName(this.name)
                     .build();
 
-            NFSServerV41 nfs4 = new NFSServerV41.Builder()
-                    .withVfs(vfs)
-                    .withOperationExecutor(new MDSOperationExecutor())
-                    .withExportTable(exportFile)
-                    .build();
+            if (startNfsV4) {
+                nfs4 = new NFSServerV41.Builder()
+                        .withVfs(vfs)
+                        .withOperationExecutor(new MDSOperationExecutor())
+                        .withExportTable(exportFile)
+                        .build();
+            }
 
-            NfsServerV3 nfs3 = new NfsServerV3(exportFile, vfs);
+            if (startNfsV3) {
+                nfs3 = new NfsServerV3(exportFile, vfs);
+            }
+
             MountServer mountd = new MountServer(exportFile, vfs);
 
-            nfsSvc.register(new OncRpcProgram(mount_prot.MOUNT_PROGRAM, mount_prot.MOUNT_V3), mountd);
-            nfsSvc.register(new OncRpcProgram(mount_prot.MOUNT_PROGRAM, mount_prot.MOUNT_V1), mountd);
-            nfsSvc.register(new OncRpcProgram(nfs3_prot.NFS_PROGRAM, nfs3_prot.NFS_V3), nfs3);
-            nfsSvc.register(new OncRpcProgram(nfs4_prot.NFS4_PROGRAM, nfs4_prot.NFS_V4), nfs4);
+            if (startNfsV3) {
+                nfsSvc.register(new OncRpcProgram(mount_prot.MOUNT_PROGRAM, mount_prot.MOUNT_V3), mountd);
+                nfsSvc.register(new OncRpcProgram(mount_prot.MOUNT_PROGRAM, mount_prot.MOUNT_V1), mountd);
+                nfsSvc.register(new OncRpcProgram(nfs3_prot.NFS_PROGRAM, nfs3_prot.NFS_V3), nfs3);
+            }
+
+            if (startNfsV4) {
+                nfsSvc.register(new OncRpcProgram(nfs4_prot.NFS4_PROGRAM, nfs4_prot.NFS_V4), nfs4);
+            }
+
             nfsSvc.start();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
